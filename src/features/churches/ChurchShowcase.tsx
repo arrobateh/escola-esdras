@@ -13,6 +13,8 @@ interface Church {
   latitude?: number | null; longitude?: number | null; maps_url?: string | null; source_url?: string | null;
   source_metadata?: { address_complement?: string; social_links?: { url: string; label: string }[] } | null;
 }
+interface Region { id: string; number: number; name: string; photo_url: string | null }
+interface Membership { church_id: string; region_id: string }
 const cacheKey = 'churches:catalog:v1';
 function hash(value: string) { let result = 2166136261; for (const char of value) result = Math.imul(result ^ char.charCodeAt(0), 16777619); return result >>> 0; }
 export function dailyChurch<T extends { id: string }>(churches: T[], date: string): T | null {
@@ -31,6 +33,9 @@ export function ChurchShowcase() {
 }
 function ChurchShowcaseContent({ onRetry }: { onRetry: () => void }) {
   const [churches, setChurches] = useState<Church[]>([]);
+  const [regionsData, setRegionsData] = useState<{ regions: Region[]; memberships: Membership[] } | null>(null);
+  const [regionError, setRegionError] = useState(false);
+  const [regionId, setRegionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
@@ -55,6 +60,23 @@ function ChurchShowcaseContent({ onRetry }: { onRetry: () => void }) {
         await AsyncStorage.setItem(cacheKey, JSON.stringify(rows)).catch(() => {});
       } catch { if (active) setNotice('Não foi possível atualizar as igrejas. Exibindo os dados salvos, quando disponíveis.'); }
       finally { if (active) setLoading(false); }
+      try {
+        if (!supabase) throw new Error('Sem Supabase');
+        const [regions, memberships] = await Promise.all([
+          supabase.from('church_regions').select('id, number, name, photo_url').order('number').limit(1000),
+          supabase.from('church_region_memberships').select('church_id, region_id').limit(10000),
+        ]);
+        if (regions.error || memberships.error) throw new Error('Regiões indisponíveis');
+        const data = { regions: regions.data as Region[], memberships: memberships.data as Membership[] };
+        if (active) { setRegionsData(data); setRegionError(false); }
+        await AsyncStorage.setItem('churches:regions:v1', JSON.stringify(data)).catch(() => {});
+      } catch {
+        if (active) setRegionError(true);
+        try {
+          const cached = await AsyncStorage.getItem('churches:regions:v1');
+          if (cached && active) setRegionsData(JSON.parse(cached));
+        } catch { /* Sem cache, não inferir ausência de região. */ }
+      }
     }
     void load();
     const timer = setInterval(() => setToday(churchDate()), 30000);
@@ -62,8 +84,17 @@ function ChurchShowcaseContent({ onRetry }: { onRetry: () => void }) {
     return () => { active = false; clearInterval(timer); };
   }, []));
   const featured = dailyChurch(churches, today);
+  const featuredRegions = featured && regionsData
+    ? regionsData.regions.filter((region) => regionsData.memberships.some((membership) => membership.church_id === featured.id && membership.region_id === region.id))
+    : [];
+  const featuredRegionLabel = !regionsData
+    ? regionError ? 'Região indisponível' : 'Carregando região…'
+    : featuredRegions.length ? featuredRegions.map((region) => region.name).join(' • ') : 'Sem região cadastrada';
   const normalized = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  const filtered = churches.filter((church) => normalized(church.name).includes(normalized(query)));
+  const assigned = new Set(regionsData?.memberships.map((membership) => membership.church_id) ?? []);
+  const regionChurches = regionId === 'unassigned' ? churches.filter((church) => !assigned.has(church.id)) : churches.filter((church) => regionsData?.memberships.some((membership) => membership.region_id === regionId && membership.church_id === church.id));
+  const filtered = regionChurches.filter((church) => normalized(church.name).includes(normalized(query)));
+  const regionName = regionId === 'unassigned' ? 'Sem região cadastrada' : regionsData?.regions.find((region) => region.id === regionId)?.name;
   function show(church: Church) { setSelected(church); setLinkError(null); setVisible(true); }
   async function open(url: string) {
     setLinkError(null);
@@ -75,16 +106,16 @@ function ChurchShowcaseContent({ onRetry }: { onRetry: () => void }) {
   const coordinates = selected && typeof selected.latitude === 'number' && typeof selected.longitude === 'number' ? `${selected.latitude},${selected.longitude}` : null;
   const maps = selected?.maps_url || (coordinates ? `https://www.google.com/maps/search/?api=1&query=${coordinates}` : selected?.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selected.address)}` : null);
   return <>
-    <View style={styles.heading}><Text style={styles.section}>IGREJA EM DESTAQUE</Text><Pressable accessibilityRole="button" onPress={() => { setSelected(null); setQuery(''); setLinkError(null); setVisible(true); }} style={styles.catalogButton}><Text style={styles.accent}>Conheça nossas igrejas</Text></Pressable></View>
+    <View style={styles.heading}><Text style={styles.section}>IGREJA EM DESTAQUE</Text><Pressable accessibilityRole="button" onPress={() => { setSelected(null); setRegionId(null); setQuery(''); setLinkError(null); setVisible(true); }} style={styles.catalogButton}><Text style={styles.accent}>Conheça nossas igrejas</Text></Pressable></View>
     {notice && <Text style={styles.muted}>{notice}</Text>}
-    {featured ? <Pressable accessibilityRole="button" accessibilityLabel={`Conhecer a igreja em ${featured.name}`} style={styles.card} onPress={() => show(featured)}><ChurchPhoto key={featured.photo_url ?? featured.id} uri={featured.photo_url} large /><View style={styles.cardContent}><Text style={styles.accent}>CONHEÇA HOJE</Text><Text style={styles.title}>Igreja em {featured.name}</Text>{featured.pastor_name && <Text style={styles.muted}>Pastor: {featured.pastor_name}</Text>}<Text style={styles.accent}>Conhecer a igreja →</Text></View></Pressable> : <View style={styles.cardContent}>{loading ? <ActivityIndicator color={colors.accent} /> : <Text style={styles.muted}>Nenhuma igreja disponível.</Text>}</View>}
+    {featured ? <Pressable accessibilityRole="button" accessibilityLabel={`Conhecer a igreja em ${featured.name}`} style={styles.card} onPress={() => show(featured)}><ChurchPhoto key={featured.photo_url ?? featured.id} uri={featured.photo_url} large /><View style={styles.cardContent}><View style={styles.featuredRegion}><Icon name="map-location-dot" size={14} color={colors.gold} /><Text style={styles.featuredRegionText}>{featuredRegionLabel}</Text></View><Text style={styles.accent}>CONHEÇA HOJE</Text><Text style={styles.title}>Igreja em {featured.name}</Text>{featured.pastor_name && <Text style={styles.muted}>Pastor: {featured.pastor_name}</Text>}<Text style={styles.accent}>Conhecer a igreja →</Text></View></Pressable> : <View style={styles.cardContent}>{loading ? <ActivityIndicator color={colors.accent} /> : <Text style={styles.muted}>Nenhuma igreja disponível.</Text>}</View>}
     {notice && <Pressable accessibilityRole="button" onPress={onRetry} style={styles.catalogButton}><Text style={styles.accent}>Tentar novamente</Text></Pressable>}
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={() => { if (selected) setSelected(null); else setVisible(false); }}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={() => { if (selected) setSelected(null); else if (regionId) { setRegionId(null); setQuery(''); } else setVisible(false); }}>
       <View style={styles.backdrop}><View style={styles.modal}>
-        <View style={styles.modalHeader}><Text style={[styles.title, { flex: 1 }]}>{selected ? selected.name : 'Nossas igrejas'}</Text><Pressable accessibilityRole="button" accessibilityLabel="Fechar" style={styles.close} onPress={() => setVisible(false)}><Icon name="xmark" /></Pressable></View>
+        <View style={styles.modalHeader}><Text style={[styles.title, { flex: 1 }]}>{selected ? selected.name : regionName ?? 'Nossas igrejas'}</Text><Pressable accessibilityRole="button" accessibilityLabel="Fechar" style={styles.close} onPress={() => setVisible(false)}><Icon name="xmark" /></Pressable></View>
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalContent}>
           {selected ? <>
-            <Pressable accessibilityRole="button" onPress={() => setSelected(null)} style={styles.catalogButton}><Text style={styles.accent}>‹ Todas as igrejas</Text></Pressable>
+            <Pressable accessibilityRole="button" onPress={() => setSelected(null)} style={styles.catalogButton}><Text style={styles.accent}>‹ {regionName ?? 'Regiões'}</Text></Pressable>
             <ChurchPhoto key={selected.id} uri={selected.photo_url} large />
             <Detail label="Pastor presidente" value={selected.pastor_name} /><Detail label="Endereço" value={selected.address} /><Detail label="Complemento" value={selected.source_metadata?.address_complement} /><Detail label="Contato" value={selected.contact} /><Detail label="Cultos e atividades" value={selected.services_text} /><Detail label="Data de organização" value={selected.organization_date_text} />
             {maps ? <Pressable accessibilityRole="link" style={styles.mapButton} onPress={() => { void open(maps); }}><Text style={styles.buttonText}><Icon name="map-location-dot" color={colors.text} /> Abrir no Google Maps</Text></Pressable> : <Text style={styles.muted}>Localização não informada.</Text>}
@@ -92,7 +123,17 @@ function ChurchShowcaseContent({ onRetry }: { onRetry: () => void }) {
             {selected.source_metadata?.social_links?.map((link) => <Pressable accessibilityRole="link" key={link.url} style={styles.catalogButton} onPress={() => { void open(link.url); }}><Text style={styles.accent}>{link.label} ↗</Text></Pressable>)}
             {selected.source_url && <Pressable accessibilityRole="link" style={styles.catalogButton} onPress={() => { void open(selected.source_url!); }}><Text style={styles.accent}>Página da igreja no site da congregação ↗</Text></Pressable>}
             {linkError && <Text accessibilityRole="alert" style={styles.error}>{linkError}</Text>}
+          </> : regionId === null ? <>
+            <Text style={styles.muted}>Selecione uma região para conhecer suas igrejas.</Text>
+            {regionError && <Text style={styles.muted}>{regionsData ? 'Não foi possível atualizar as regiões. Exibindo dados salvos.' : 'Não foi possível carregar as regiões. Verifique se a importação de regiões foi aplicada no Supabase.'}</Text>}
+            {!regionsData && !regionError && <ActivityIndicator color={colors.accent} />}
+            {regionsData && <View style={styles.grid}>
+              {regionsData.regions.map((region) => <Pressable accessibilityRole="button" accessibilityLabel={`Abrir ${region.name}`} key={region.id} style={styles.tile} onPress={() => { setRegionId(region.id); setQuery(''); }}><ChurchPhoto key={region.photo_url ?? region.id} uri={region.photo_url} /><Text style={styles.tileName}>{region.name}</Text><Text style={styles.regionCount}>{churches.filter((church) => regionsData.memberships.some((membership) => membership.region_id === region.id && membership.church_id === church.id)).length} igrejas</Text></Pressable>)}
+              <Pressable accessibilityRole="button" style={styles.tile} onPress={() => { setRegionId('unassigned'); setQuery(''); }}><View style={[styles.photo, styles.fallback]}><Icon name="church" size={32} /></View><Text style={styles.tileName}>Sem região cadastrada</Text><Text style={styles.regionCount}>{churches.filter((church) => !assigned.has(church.id)).length} igrejas</Text></Pressable>
+            </View>}
+            {regionError && <Pressable accessibilityRole="button" style={styles.catalogButton} onPress={onRetry}><Text style={styles.accent}>Tentar novamente</Text></Pressable>}
           </> : <>
+            <Pressable accessibilityRole="button" style={styles.catalogButton} onPress={() => { setRegionId(null); setQuery(''); }}><Text style={styles.accent}>‹ Todas as regiões</Text></Pressable>
             <TextInput accessibilityLabel="Pesquisar igreja no catálogo" value={query} onChangeText={setQuery} placeholder="Pesquisar igreja" placeholderTextColor={colors.muted} style={styles.input} />
             <Text style={styles.muted}>{filtered.length} igrejas</Text>
             <View style={styles.grid}>{filtered.map((church) => <Pressable accessibilityRole="button" accessibilityLabel={`Ver informações de ${church.name}`} key={church.id} style={styles.tile} onPress={() => show(church)}><ChurchPhoto key={church.photo_url ?? church.id} uri={church.photo_url} /><Text style={styles.tileName}>{church.name}</Text></Pressable>)}</View>
@@ -113,6 +154,8 @@ const styles = StyleSheet.create({
   title: { color: colors.text, fontSize: 19, fontWeight: '800' },
   body: { color: colors.text, fontSize: 14, lineHeight: 23 },
   card: { backgroundColor: colors.surface, borderRadius: 24, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
+  featuredRegion: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.inset },
+  featuredRegionText: { flexShrink: 1, color: colors.gold, fontSize: 12, fontWeight: '700' },
   cardContent: { padding: 18, gap: 10 },
   photo: { width: '100%', height: 110, backgroundColor: colors.inset },
   largePhoto: { height: 180, borderRadius: 16 },
@@ -125,6 +168,7 @@ const styles = StyleSheet.create({
   input: { padding: 14, borderRadius: 14, borderWidth: 1, borderColor: colors.border, color: colors.text, backgroundColor: colors.surface },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   tile: { width: '47%', flexGrow: 1, maxWidth: '49%', backgroundColor: colors.surface, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: colors.border },
+  regionCount: { paddingHorizontal: 12, paddingBottom: 14, color: colors.muted, fontSize: 12 },
   tileName: { padding: 12, fontSize: 14, fontWeight: '700', color: colors.text },
   mapButton: { minHeight: 48, padding: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary, borderRadius: 14 },
   buttonText: { color: colors.text, fontWeight: '700', fontSize: 14 },
