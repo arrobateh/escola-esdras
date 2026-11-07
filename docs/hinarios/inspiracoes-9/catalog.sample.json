@@ -1,0 +1,10 @@
+{
+  "hymnal_id": "inspiracoes-9-2019",
+  "source_pages": 160,
+  "note": "Amostra de estrutura. Títulos vistos na página 3; letras ainda não transcritas. Não representa catálogo completo.",
+  "hymns": [
+    { "number": 1, "title": "I CORÍNTIOS 13", "lyrics": null, "page_start": 3, "page_end": 3, "review_status": "draft" },
+    { "number": 2, "title": "AO SALVADOR AMADO", "lyrics": null, "page_start": 3, "page_end": 3, "review_status": "draft" },
+    { "number": 3, "title": "AO SENHOR O DOMÍNIO", "lyrics": null, "page_start": 3, "page_end": 4, "review_status": "draft" }
+  ]
+}

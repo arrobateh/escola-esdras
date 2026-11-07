@@ -8,6 +8,9 @@ completa** (Gênesis → Apocalipse, ordem canônica).
 
 ## Arquivos
 
+- `migration_hymnals.sql` — preparação do catálogo de hinários, letras, compositores e
+  créditos com RLS. Não publica conteúdo automaticamente. Ver `../docs/hinarios/README.md`.
+
 - `schema.sql` — schema "verde" para ambientes novos: tabelas, políticas de
   segurança (RLS), trigger de criação de perfil e a função geradora
   `generate_bible_plan` (com o plano "Bíblia Completa" já criado no final).
