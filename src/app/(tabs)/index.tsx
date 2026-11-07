@@ -87,6 +87,11 @@ export default function HomeScreen() {
             {reading && <><View style={styles.row}><Text style={styles.description}>Progresso do Livro</Text><Text style={styles.eyebrow}>{reading.percent}%</Text></View><View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${reading.percent}%` }]} /></View></>}
             <View style={styles.primaryButton}><Text style={styles.buttonText}>{reading ? '▶ Retomar Leitura' : 'Abrir Bíblia →'}</Text></View>
           </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Abrir hinários" onPress={() => router.push('/hinarios')} style={styles.card}>
+            <View style={styles.row}><Icon name="music" size={24} color="#d4a373" /><Text style={styles.eyebrow}>HINÁRIOS</Text><Icon name="chevron-right" /></View>
+            <Text style={styles.cardTitle}>Louvores da nossa igreja</Text>
+            <Text style={styles.description}>Encontre os hinários por compositor e acompanhe as letras.</Text>
+          </Pressable>
           <ChurchShowcase />
         </ScrollView>
 

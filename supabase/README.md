@@ -8,6 +8,10 @@ completa** (Gênesis → Apocalipse, ordem canônica).
 
 ## Arquivos
 
+- `import_inspiracoes_9.sql` — importa 325 hinos/vínculos; publica apenas os dez
+  primeiros, conferidos no PDF, e deixa 315 em rascunho. Executar após
+  `migration_hymnals.sql`. Não publica todo o OCR. Ver `../docs/hinarios/README.md`.
+
 - `migration_hymnals.sql` — preparação do catálogo de hinários, letras, compositores e
   créditos com RLS. Não publica conteúdo automaticamente. Ver `../docs/hinarios/README.md`.
 
